@@ -210,7 +210,40 @@ async function main() {
   } catch (e) { /* already exists */ }
   console.log('✅ Mission de test créée');
 
-  console.log('\n🎉 Database seeded successfully!');
+  // v3.0: Missions en mode BIDDING
+  const biddingMissions = [
+    { ref: 'TT-2025-000002', pickup: 'Paris', delivery: 'Marseille', goods: 'Palettes de cosmétiques SEB', wKg: 2400, vehicle: 'PORTEUR_12T', urgent: true, dist: 775 },
+    { ref: 'TT-2025-000003', pickup: 'Lyon', delivery: 'Bordeaux', goods: 'Produits pharmaceutiques Sanofi', wKg: 5200, vehicle: 'SEMI_TAUTLINER', urgent: false, dist: 550, adr: true },
+    { ref: 'TT-2025-000004', pickup: 'Lille', delivery: 'Marseille', goods: 'Matériaux Lafarge', wKg: 18000, vehicle: 'SEMI_BENNE', urgent: false, dist: 1000 },
+    { ref: 'TT-2025-000005', pickup: 'Nantes', delivery: 'Strasbourg', goods: 'Colis Vinted marketplace', wKg: 800, vehicle: 'FOURGON_20M3', urgent: true, dist: 830 },
+    { ref: 'TT-2025-000006', pickup: 'Toulouse', delivery: 'Nice', goods: 'Huiles alimentaires Lesieur', wKg: 12000, vehicle: 'SEMI_CITERNE', urgent: false, dist: 550 },
+  ];
+
+  for (const m of biddingMissions) {
+    try {
+      await prisma.mission.create({
+        data: {
+          reference: m.ref, clientId: clientUser.id, status: 'BIDDING',
+          pickupAddress: `Zone industrielle ${m.pickup}`, pickupCity: m.pickup,
+          pickupPostalCode: '00000', pickupCountry: 'FR', pickupLat: 48.85, pickupLon: 2.35,
+          deliveryAddress: `Entrepôt ${m.delivery}`, deliveryCity: m.delivery,
+          deliveryPostalCode: '00000', deliveryCountry: 'FR', deliveryLat: 43.29, deliveryLon: 5.36,
+          goodsDescription: m.goods, weightKg: m.wKg, vehicleTypeRequired: m.vehicle,
+          isUrgent: m.urgent || false, isADR: m.adr || false,
+          distanceKm: m.dist, estimatedDurationHours: m.dist / 70,
+          priceHT: m.dist * 120, priceTTC: m.dist * 144, priceCommission: m.dist * 12,
+          tvaRate: 20, ttScore: 65,
+          co2GlecWTW: Math.round(m.dist * m.wKg * 0.00006 * 10) / 10,
+          co2Rating: m.dist * m.wKg * 0.00006 < 50 ? 'A' : m.dist * m.wKg * 0.00006 < 150 ? 'B' : 'C',
+          co2Methodology: 'GLEC v3 / ISO 14083',
+          biddingDeadline: new Date(Date.now() + 48 * 3600000),
+        },
+      });
+    } catch (e) { /* exists */ }
+  }
+  console.log('✅ 5 missions marketplace BIDDING créées');
+
+  console.log('\n🎉 Database seeded v3.0 successfully!');
 }
 
 main()
