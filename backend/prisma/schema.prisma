@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// TRANSPORT TOKEN — SCHEMA PRISMA v3.0
+// Mise à jour : + Bid, Rating, Notification, CarbonReport
+// ═══════════════════════════════════════════════════════════════════════════
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,6 +12,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── UTILISATEURS ───────────────────────────────────────────────────────
+
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
@@ -14,7 +21,7 @@ model User {
   firstName     String?
   lastName      String?
   phone         String?
-  role          String   @default("CLIENT")
+  role          String   @default("CLIENT") // CLIENT, TRANSPORTEUR, ADMIN
   status        String   @default("ACTIVE")
   emailVerified Boolean  @default(false)
   kycVerified   Boolean  @default(false)
@@ -26,7 +33,11 @@ model User {
   
   clientMissions      Mission[] @relation("ClientMissions")
   transporteurProfile TransporteurProfile?
+  ratingsGiven        Rating[]  @relation("RatingsGiven")
+  notifications       Notification[]
 }
+
+// ─── ENTREPRISES ────────────────────────────────────────────────────────
 
 model Company {
   id           String   @id @default(cuid())
@@ -43,6 +54,8 @@ model Company {
   users        User[]
 }
 
+// ─── PROFIL TRANSPORTEUR ────────────────────────────────────────────────
+
 model TransporteurProfile {
   id               String   @id @default(cuid())
   userId           String   @unique
@@ -54,22 +67,27 @@ model TransporteurProfile {
   totalMissions    Int      @default(0)
   completedMissions Int     @default(0)
   averageRating    Float    @default(0)
-  coverageCountries String?
-  coverageRadius   Int      @default(500)
+  coverageCountries String? // "FR,DE,BE,NL" — pays desservis
+  coverageRadius   Int      @default(500)  // km
   hasADR           Boolean  @default(false)
   hasFrigo         Boolean  @default(false)
   hasHayon         Boolean  @default(false)
+  avgResponseMinutes Int    @default(30)
   createdAt        DateTime @default(now())
   
   vehicles  Vehicle[]
   missions  Mission[] @relation("TransporteurMissions")
+  bids      Bid[]
+  ratings   Rating[]  @relation("RatingsReceived")
 }
+
+// ─── VÉHICULES ──────────────────────────────────────────────────────────
 
 model Vehicle {
   id             String   @id @default(cuid())
   transporteurId String
   transporteur   TransporteurProfile @relation(fields: [transporteurId], references: [id])
-  type           String
+  type           String   // SEMI_TAUTLINER, PORTEUR_12T, etc.
   brand          String?
   model          String?
   year           Int?
@@ -78,8 +96,8 @@ model Vehicle {
   volumeM3       Float?
   hasTailLift    Boolean  @default(false)
   hasTracker     Boolean  @default(false)
-  euroNorm       String?
-  fuelType       String   @default("diesel")
+  euroNorm       String?  // Euro 5, Euro 6, ZÉRO
+  fuelType       String   @default("diesel") // diesel, electric, gnl, hvo100, hydrogen
   ckPerKm        Float    @default(0.78)
   ccPerHour      Float    @default(28)
   cjPerDay       Float    @default(135)
@@ -87,7 +105,10 @@ model Vehicle {
   createdAt      DateTime @default(now())
   
   missions Mission[]
+  bids     Bid[]
 }
+
+// ─── MISSIONS ───────────────────────────────────────────────────────────
 
 model Mission {
   id                   String   @id @default(cuid())
@@ -99,8 +120,10 @@ model Mission {
   vehicleId            String?
   vehicle              Vehicle? @relation(fields: [vehicleId], references: [id])
   
+  // Statut : DRAFT → BIDDING → ASSIGNED → PICKUP → IN_TRANSIT → DELIVERED → COMPLETED → CANCELLED
   status               String   @default("PENDING")
   
+  // Enlèvement
   pickupAddress        String
   pickupCity           String
   pickupPostalCode     String
@@ -112,6 +135,7 @@ model Mission {
   pickupDateRequested  DateTime?
   pickupDateActual     DateTime?
   
+  // Livraison
   deliveryAddress      String
   deliveryCity         String
   deliveryPostalCode   String
@@ -123,20 +147,23 @@ model Mission {
   deliveryDateRequested DateTime?
   deliveryDateActual    DateTime?
   
+  // Marchandise
   goodsDescription     String?
   goodsValue           Float?
   weightKg             Float    @default(1000)
   volumeM3             Float?
   packagesCount        Int      @default(1)
   
+  // Exigences
   vehicleTypeRequired  String?
   isUrgent             Boolean  @default(false)
   isWeekend            Boolean  @default(false)
   isNight              Boolean  @default(false)
   isADR                Boolean  @default(false)
   isFragile            Boolean  @default(false)
-  ecoOption            String   @default("standard")
+  ecoOption            String   @default("standard") // standard, HVO, electric
   
+  // Tarification CNR
   distanceKm           Float?
   estimatedDurationHours Float?
   priceBase            Int      @default(0)
@@ -148,14 +175,147 @@ model Mission {
   priceTVA             Int      @default(0)
   priceTTC             Int      @default(0)
   tvaRate              Float    @default(20)
-  co2Estimated         Float?
+  
+  // Bilan carbone GLEC
+  co2Estimated         Float?   // kg CO2e — ancien champ
+  co2GlecWTW           Float?   // kg CO2e WTW (GLEC v3)
+  co2GlecTTW           Float?   // kg CO2e TTW
+  co2GlecWTT           Float?   // kg CO2e WTT
+  co2Rating            String?  // A+, A, B, C, D
+  co2Methodology       String?  // "GLEC v3 / ISO 14083"
+  
+  // Transport Token Score
   ttScore              Int      @default(50)
   
+  // Notes
   clientNotes          String?
   internalNotes        String?
   
+  // Enchères deadline
+  biddingDeadline      DateTime? // Date limite pour enchérir
+  
+  // Timestamps
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   acceptedAt           DateTime?
   completedAt          DateTime?
+  
+  // Relations v3.0
+  bids                 Bid[]
+  ratings              Rating[]
+  notifications        Notification[]
+  carbonReports        CarbonReport[]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⬇️ NOUVEAUX MODÈLES v3.0 ⬇️
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── ENCHÈRES (BIDDING SYSTEM) ──────────────────────────────────────────
+
+model Bid {
+  id                 String   @id @default(cuid())
+  missionId          String
+  mission            Mission  @relation(fields: [missionId], references: [id])
+  transporteurId     String
+  transporteur       TransporteurProfile @relation(fields: [transporteurId], references: [id])
+  vehicleId          String?
+  vehicle            Vehicle? @relation(fields: [vehicleId], references: [id])
+  
+  amount             Int      // Montant HT en euros
+  message            String?  // Message optionnel au client
+  estimatedPickupDate DateTime?
+  
+  status             String   @default("PENDING") // PENDING, ACCEPTED, REJECTED, EXPIRED, WITHDRAWN
+  
+  // Matching score au moment de l'enchère
+  matchScore         Int?     // Score AI 0-100
+  matchTier          String?  // gold, silver, bronze
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  respondedAt        DateTime?
+  
+  @@unique([missionId, transporteurId]) // Un transporteur = une enchère par mission
+  @@index([missionId])
+  @@index([transporteurId])
+}
+
+// ─── SYSTÈME DE NOTATION ────────────────────────────────────────────────
+
+model Rating {
+  id               String   @id @default(cuid())
+  missionId        String
+  mission          Mission  @relation(fields: [missionId], references: [id])
+  fromUserId       String
+  fromUser         User     @relation("RatingsGiven", fields: [fromUserId], references: [id])
+  toTransporteurId String
+  toTransporteur   TransporteurProfile @relation("RatingsReceived", fields: [toTransporteurId], references: [id])
+  
+  score            Int      // Note globale 1-5
+  comment          String?  // Commentaire libre
+  
+  // Critères détaillés (1-5 chacun)
+  punctuality      Int?     // Ponctualité
+  communication    Int?     // Communication
+  cargoHandling    Int?     // Soin de la marchandise
+  professionalism  Int?     // Professionnalisme
+  
+  createdAt        DateTime @default(now())
+  
+  @@unique([missionId, fromUserId]) // Un avis par client par mission
+  @@index([toTransporteurId])
+}
+
+// ─── NOTIFICATIONS TEMPS RÉEL ───────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  missionId String?
+  mission   Mission? @relation(fields: [missionId], references: [id])
+  
+  type      String   // NEW_BID, BID_ACCEPTED, BID_REJECTED, MISSION_UPDATE, DELIVERY_CONFIRMED, RATING_RECEIVED, SYSTEM
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  
+  createdAt DateTime @default(now())
+  
+  @@index([userId, read])
+  @@index([userId, createdAt])
+}
+
+// ─── RAPPORTS CARBONE (GLEC / ISO 14083) ────────────────────────────────
+
+model CarbonReport {
+  id            String   @id @default(cuid())
+  missionId     String
+  mission       Mission  @relation(fields: [missionId], references: [id])
+  
+  // Paramètres d'entrée
+  vehicleType   String
+  distanceKm    Float
+  weightKg      Float
+  fuelType      String   @default("diesel_b7")
+  
+  // Résultats (en kg CO2e)
+  co2WTW        Float    // Well-to-Wheel total
+  co2TTW        Float    // Tank-to-Wheel (combustion directe)
+  co2WTT        Float    // Well-to-Tank (production carburant)
+  
+  // Intensité
+  co2PerKm      Float    // kg CO2e par km
+  co2PerTkm     Float    // gCO2e par tonne-km
+  
+  // Classification
+  rating        String   // A+, A, B, C, D, E
+  
+  // Métadonnées
+  methodology   String   @default("GLEC Framework v3.2 / ISO 14083")
+  daf           Float    @default(1.05)
+  calculatedAt  DateTime @default(now())
+  
+  @@index([missionId])
 }
