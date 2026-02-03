@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  firstName     String?
+  lastName      String?
+  phone         String?
+  role          String   @default("CLIENT")
+  status        String   @default("ACTIVE")
+  emailVerified Boolean  @default(false)
+  kycVerified   Boolean  @default(false)
+  companyId     String?
+  company       Company? @relation(fields: [companyId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastLoginAt   DateTime?
+  
+  clientMissions      Mission[] @relation("ClientMissions")
+  transporteurProfile TransporteurProfile?
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  siret        String   @unique
+  legalForm    String?
+  address      String?
+  city         String?
+  postalCode   String?
+  country      String   @default("FR")
+  phone        String?
+  capitalSocial Float?
+  createdAt    DateTime @default(now())
+  users        User[]
+}
+
+model TransporteurProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id])
+  licenceNumber    String?
+  licenceExpiry    DateTime?
+  isVerified       Boolean  @default(false)
+  verifiedAt       DateTime?
+  totalMissions    Int      @default(0)
+  completedMissions Int     @default(0)
+  averageRating    Float    @default(0)
+  coverageCountries String?
+  coverageRadius   Int      @default(500)
+  hasADR           Boolean  @default(false)
+  hasFrigo         Boolean  @default(false)
+  hasHayon         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  
+  vehicles  Vehicle[]
+  missions  Mission[] @relation("TransporteurMissions")
+}
+
+model Vehicle {
+  id             String   @id @default(cuid())
+  transporteurId String
+  transporteur   TransporteurProfile @relation(fields: [transporteurId], references: [id])
+  type           String
+  brand          String?
+  model          String?
+  year           Int?
+  licensePlate   String   @unique
+  capacityKg     Float
+  volumeM3       Float?
+  hasTailLift    Boolean  @default(false)
+  hasTracker     Boolean  @default(false)
+  euroNorm       String?
+  fuelType       String   @default("diesel")
+  ckPerKm        Float    @default(0.78)
+  ccPerHour      Float    @default(28)
+  cjPerDay       Float    @default(135)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  
+  missions Mission[]
+}
+
+model Mission {
+  id                   String   @id @default(cuid())
+  reference            String   @unique @default(cuid())
+  clientId             String
+  client               User     @relation("ClientMissions", fields: [clientId], references: [id])
+  transporteurId       String?
+  transporteur         TransporteurProfile? @relation("TransporteurMissions", fields: [transporteurId], references: [id])
+  vehicleId            String?
+  vehicle              Vehicle? @relation(fields: [vehicleId], references: [id])
+  
+  status               String   @default("PENDING")
+  
+  pickupAddress        String
+  pickupCity           String
+  pickupPostalCode     String
+  pickupCountry        String   @default("FR")
+  pickupLat            Float?
+  pickupLon            Float?
+  pickupContact        String?
+  pickupPhone          String?
+  pickupDateRequested  DateTime?
+  pickupDateActual     DateTime?
+  
+  deliveryAddress      String
+  deliveryCity         String
+  deliveryPostalCode   String
+  deliveryCountry      String   @default("FR")
+  deliveryLat          Float?
+  deliveryLon          Float?
+  deliveryContact      String?
+  deliveryPhone        String?
+  deliveryDateRequested DateTime?
+  deliveryDateActual    DateTime?
+  
+  goodsDescription     String?
+  goodsValue           Float?
+  weightKg             Float    @default(1000)
+  volumeM3             Float?
+  packagesCount        Int      @default(1)
+  
+  vehicleTypeRequired  String?
+  isUrgent             Boolean  @default(false)
+  isWeekend            Boolean  @default(false)
+  isNight              Boolean  @default(false)
+  isADR                Boolean  @default(false)
+  isFragile            Boolean  @default(false)
+  ecoOption            String   @default("standard")
+  
+  distanceKm           Float?
+  estimatedDurationHours Float?
+  priceBase            Int      @default(0)
+  priceTolls           Int      @default(0)
+  priceSurcharges      Int      @default(0)
+  priceEcoDiscount     Int      @default(0)
+  priceCommission      Int      @default(0)
+  priceHT              Int      @default(0)
+  priceTVA             Int      @default(0)
+  priceTTC             Int      @default(0)
+  tvaRate              Float    @default(20)
+  co2Estimated         Float?
+  ttScore              Int      @default(50)
+  
+  clientNotes          String?
+  internalNotes        String?
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  acceptedAt           DateTime?
+  completedAt          DateTime?
+}
