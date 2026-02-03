@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 
 const prisma = new PrismaClient();
 const app = express();
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 const JWT_SECRET = 'transport-token-secret-key-2025';
 
 // Middleware
