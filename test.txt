@@ -7,7 +7,6 @@
 
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -21,7 +20,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'transport-token-secret-key-2025';
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const VERSION = '4.0.0';
+const VERSION = '3.1.0';
 
 // ── MIDDLEWARE ────────────────────────────────────────────────────────────
 
@@ -115,16 +114,6 @@ const COUNTRIES = {
   MT: { tva: 18, toll: 0.00, label: 'Malte' },         CY: { tva: 19, toll: 0.00, label: 'Chypre' },
 };
 
-// Surcharges référentiel
-const SURCHARGES = {
-  urgent: { rate: 0.50, label: 'Livraison urgente (+50%)' },
-  weekend: { rate: 0.35, label: 'Weekend (+35%)' },
-  night: { rate: 0.20, label: 'Nuit (+20%)' },
-  adr: { rate: 0.25, label: 'Matières dangereuses ADR (+25%)' },
-  fragile: { rate: 0.10, label: 'Marchandise fragile (+10%)' },
-  tailLift: { rate: 0.05, label: 'Hayon élévateur (+5%)' },
-};
-
 // ═══════════════════════════════════════════════════════════════════════════
 // GLEC FRAMEWORK v3.2 / ISO 14083:2023 — Émissions carbone
 // ═══════════════════════════════════════════════════════════════════════════
@@ -192,8 +181,7 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 
 function calcPrice(p) {
-  const v = VEHICLES[p.vehicleType];
-  if (!v) return { error: `Type véhicule inconnu: ${p.vehicleType}`, valid: Object.keys(VEHICLES) };
+  const v = VEHICLES[p.vehicleType] || VEHICLES.FOURGON_20M3;
   const d = p.distanceKm || haversine(p.pickupLat || 48.85, p.pickupLon || 2.35, p.deliveryLat || 45.76, p.deliveryLon || 4.84);
   if (d <= 0) return null;
 
@@ -475,7 +463,6 @@ app.post('/api/missions/quote', (req, res) => {
   try {
     const p = calcPrice(req.body);
     if (!p) return res.status(400).json({ error: 'Paramètres invalides (distance = 0?)' });
-    if (p.error) return res.status(400).json(p); // vehicleType invalide
     return res.json({ quote: { ...p, priceHTEuros: p.priceHT / 100, priceTTCEuros: p.priceTTC / 100 } });
   } catch (e) { return res.status(500).json({ error: 'Erreur calcul' }); }
 });
@@ -578,10 +565,6 @@ app.post('/api/missions', auth, async (req, res) => {
     const err = validate(['pickupCity', 'deliveryCity'], d);
     if (err) return res.status(400).json({ error: err });
 
-    // ✅ FIX: Validation vehicleType
-    const vt = d.vehicleTypeRequired || 'FOURGON_20M3';
-    if (!VEHICLES[vt]) return res.status(400).json({ error: `Type véhicule inconnu: ${vt}`, valid: Object.keys(VEHICLES) });
-
     const pc = CITIES[d.pickupCity] || { lat: 48.8566, lon: 2.3522 };
     const dc = CITIES[d.deliveryCity] || { lat: 45.4642, lon: 9.19 };
     const pLa = d.pickupLat || pc.lat, pLo = d.pickupLon || pc.lon;
@@ -590,20 +573,18 @@ app.post('/api/missions', auth, async (req, res) => {
     const pr = calcPrice({
       pickupLat: pLa, pickupLon: pLo, pickupCountry: d.pickupCountry || 'FR',
       deliveryLat: dLa, deliveryLon: dLo, deliveryCountry: d.deliveryCountry || 'FR',
-      vehicleType: vt,
+      vehicleType: d.vehicleTypeRequired || 'FOURGON_20M3',
       isUrgent: d.isUrgent || false, isWeekend: d.isWeekend || false,
       isNight: d.isNight || false, isADR: d.isADR || false,
       ecoOption: d.ecoOption || 'standard',
     });
 
-    if (!pr || pr.error) return res.status(400).json({ error: pr?.error || 'Erreur calcul prix' });
-
-    const gl = calcGLEC(vt, pr.distanceKm, d.weightKg || 1000, d.fuelType, d.pickupCountry || 'FR');
+    const gl = calcGLEC(d.vehicleTypeRequired || 'FOURGON_20M3', pr.distanceKm, d.weightKg || 1000, d.fuelType, d.pickupCountry || 'FR');
 
     const mission = await prisma.mission.create({
       data: {
         client: { connect: { id: req.user.id } },
-        reference: `FN-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
+        reference: `TT-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
         status: d.enableBidding ? 'BIDDING' : 'PENDING',
         pickupAddress: d.pickupAddress || d.pickupCity, pickupCity: d.pickupCity,
         pickupPostalCode: d.pickupPostalCode || '00000', pickupCountry: d.pickupCountry || 'FR',
@@ -1287,253 +1268,6 @@ app.get('/api/missions/available/list', auth, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 404 HANDLER
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// ROUTES AJOUTÉES v4.0 — Alignement frontend ↔ backend
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ── AUTH: Logout ──
-app.post('/api/auth/logout', auth, (req, res) => {
-  return res.json({ success: true, message: 'Déconnexion réussie' });
-});
-
-// ── VEHICLES CRUD ──
-app.get('/api/vehicles', auth, async (req, res) => {
-  try {
-    const profile = await prisma.transporteurProfile.findUnique({ where: { userId: req.user.id } });
-    if (!profile) return res.json({ success: true, data: [], count: 0 });
-    const vehicles = await prisma.vehicle.findMany({ where: { transporteurId: profile.id, isActive: true }, orderBy: { createdAt: 'desc' } });
-    return res.json({ success: true, data: vehicles, count: vehicles.length });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-app.post('/api/vehicles', auth, async (req, res) => {
-  try {
-    const profile = await prisma.transporteurProfile.findUnique({ where: { userId: req.user.id } });
-    if (!profile) return res.status(403).json({ error: 'Profil transporteur requis' });
-    const { type, brand, model, year, licensePlate, capacityKg, volumeM3, fuelType } = req.body;
-    const err = validate(['type', 'licensePlate', 'capacityKg'], req.body);
-    if (err) return res.status(400).json({ error: err });
-    if (!VEHICLES[type]) return res.status(400).json({ error: `Type invalide: ${type}`, valid: Object.keys(VEHICLES) });
-    const vehicle = await prisma.vehicle.create({
-      data: {
-        transporteurId: profile.id, type, brand, model, year,
-        licensePlate: licensePlate.toUpperCase().replace(/\s/g, ''),
-        capacityKg: parseFloat(capacityKg), volumeM3: volumeM3 ? parseFloat(volumeM3) : null,
-        fuelType: fuelType || 'diesel_b7',
-        ckPerKm: VEHICLES[type].ck, ccPerHour: VEHICLES[type].cc, cjPerDay: VEHICLES[type].cj,
-      },
-    });
-    return res.status(201).json({ success: true, data: vehicle, message: 'Véhicule ajouté' });
-  } catch (e) {
-    if (e.code === 'P2002') return res.status(409).json({ error: 'Plaque déjà enregistrée' });
-    return res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-app.delete('/api/vehicles/:id', auth, async (req, res) => {
-  try {
-    const profile = await prisma.transporteurProfile.findUnique({ where: { userId: req.user.id } });
-    if (!profile) return res.status(403).json({ error: 'Profil transporteur requis' });
-    const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id } });
-    if (!vehicle || vehicle.transporteurId !== profile.id) return res.status(404).json({ error: 'Véhicule non trouvé' });
-    await prisma.vehicle.update({ where: { id: req.params.id }, data: { isActive: false } });
-    return res.json({ success: true, message: 'Véhicule désactivé' });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-// ── PRICING: Surcharges ──
-app.get('/api/pricing/surcharges', (req, res) => res.json({ surcharges: SURCHARGES }));
-
-// ── USER PROFILE ──
-app.get('/api/users/profile', auth, async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { company: true, transporteurProfile: { include: { vehicles: true } } },
-    });
-    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
-    const { passwordHash, ...safeUser } = user;
-    return res.json({ success: true, data: safeUser });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-app.patch('/api/users/profile', auth, async (req, res) => {
-  try {
-    const { firstName, lastName, phone } = req.body;
-    const data = {};
-    if (firstName) data.firstName = firstName.trim();
-    if (lastName) data.lastName = lastName.trim();
-    if (phone) data.phone = phone.trim();
-    const user = await prisma.user.update({ where: { id: req.user.id }, data });
-    const { passwordHash, ...safeUser } = user;
-    return res.json({ success: true, data: safeUser, message: 'Profil mis à jour' });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-// ── NOTIFICATIONS (frontend aliases) ──
-app.get('/api/users/notifications', auth, async (req, res) => {
-  try {
-    const where = { userId: req.user.id };
-    if (req.query.unreadOnly === 'true') where.read = false;
-    const [notifications, unreadCount] = await Promise.all([
-      prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take: 20 }),
-      prisma.notification.count({ where: { userId: req.user.id, read: false } }),
-    ]);
-    return res.json({ success: true, data: notifications, unreadCount });
-  } catch (e) { return res.status(500).json({ error: 'Erreur' }); }
-});
-
-app.patch('/api/users/notifications/:id/read', auth, async (req, res) => {
-  try {
-    await prisma.notification.updateMany({ where: { id: req.params.id, userId: req.user.id }, data: { read: true } });
-    return res.json({ success: true, message: 'Notification lue' });
-  } catch (e) { return res.status(500).json({ error: 'Erreur' }); }
-});
-
-// ── MISSION CANCEL ──
-app.post('/api/missions/:id/cancel', auth, async (req, res) => {
-  try {
-    const mission = await prisma.mission.findUnique({ where: { id: req.params.id } });
-    if (!mission) return res.status(404).json({ error: 'Mission non trouvée' });
-    if (mission.clientId !== req.user.id && !['ADMIN', 'SUPER_ADMIN'].includes(req.user.role))
-      return res.status(403).json({ error: 'Seul le client ou un admin peut annuler' });
-    if (['DELIVERED', 'COMPLETED', 'CANCELLED'].includes(mission.status))
-      return res.status(400).json({ error: `Mission déjà ${mission.status}` });
-    const updated = await prisma.mission.update({
-      where: { id: req.params.id },
-      data: { status: 'CANCELLED', cancelledBy: req.user.id, cancelReason: req.body.reason || 'Annulée par le client', cancelledAt: new Date() },
-    });
-    await prisma.bid.updateMany({ where: { missionId: mission.id, status: 'PENDING' }, data: { status: 'REJECTED', respondedAt: new Date() } });
-    return res.json({ success: true, mission: updated, message: 'Mission annulée' });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-// ── TRACKING GPS ──
-app.get('/api/tracking/mission/:missionId', auth, async (req, res) => {
-  try {
-    const positions = await prisma.gpsPosition.findMany({ where: { missionId: req.params.missionId }, orderBy: { recordedAt: 'desc' }, take: 1 });
-    return res.json({ success: true, data: positions[0] || null });
-  } catch (e) { return res.status(500).json({ error: 'Erreur' }); }
-});
-
-app.post('/api/tracking/mission/:missionId/position', auth, async (req, res) => {
-  try {
-    const { lat, lon, speed, heading } = req.body;
-    if (!lat || !lon) return res.status(400).json({ error: 'lat et lon requis' });
-    const pos = await prisma.gpsPosition.create({
-      data: { missionId: req.params.missionId, latitude: parseFloat(lat), longitude: parseFloat(lon), speed: speed ? parseFloat(speed) : null, heading: heading ? parseFloat(heading) : null },
-    });
-    return res.json({ success: true, data: pos });
-  } catch (e) { return res.status(500).json({ error: 'Erreur' }); }
-});
-
-app.get('/api/tracking/mission/:missionId/history', auth, async (req, res) => {
-  try {
-    const positions = await prisma.gpsPosition.findMany({ where: { missionId: req.params.missionId }, orderBy: { recordedAt: 'asc' } });
-    return res.json({ success: true, data: positions, count: positions.length });
-  } catch (e) { return res.status(500).json({ error: 'Erreur' }); }
-});
-
-// ── ANALYTICS ──
-app.get('/api/analytics/overview', auth, async (req, res) => {
-  try {
-    const where = {};
-    if (req.user.role === 'CLIENT') where.clientId = req.user.id;
-    else {
-      const p = await prisma.transporteurProfile.findUnique({ where: { userId: req.user.id } });
-      if (p) where.transporteurId = p.id;
-    }
-    const missions = await prisma.mission.findMany({ where, select: { status: true, priceTTC: true, co2GlecWTW: true, distanceKm: true } });
-    const done = missions.filter(m => ['DELIVERED', 'COMPLETED'].includes(m.status));
-    return res.json({ success: true, data: {
-      totalMissions: missions.length,
-      completedMissions: done.length,
-      cancelledMissions: missions.filter(m => m.status === 'CANCELLED').length,
-      activeMissions: missions.filter(m => ['ACCEPTED', 'IN_TRANSIT', 'BIDDING', 'PENDING'].includes(m.status)).length,
-      totalSpent: done.reduce((s, m) => s + m.priceTTC, 0) / 100,
-      totalCO2: Math.round(done.reduce((s, m) => s + (m.co2GlecWTW || 0), 0) * 10) / 10,
-      totalDistanceKm: Math.round(done.reduce((s, m) => s + (m.distanceKm || 0), 0)),
-    }});
-  } catch (e) { return res.status(500).json({ error: 'Erreur analytics' }); }
-});
-
-app.get('/api/analytics/monthly', auth, async (req, res) => {
-  try {
-    const where = {};
-    if (req.user.role === 'CLIENT') where.clientId = req.user.id;
-    else {
-      const p = await prisma.transporteurProfile.findUnique({ where: { userId: req.user.id } });
-      if (p) where.transporteurId = p.id;
-    }
-    const missions = await prisma.mission.findMany({ where, select: { status: true, priceTTC: true, co2GlecWTW: true, createdAt: true }, orderBy: { createdAt: 'asc' } });
-    const monthly = {};
-    for (const m of missions) {
-      const key = m.createdAt.toISOString().slice(0, 7);
-      if (!monthly[key]) monthly[key] = { month: key, missions: 0, revenue: 0, co2: 0 };
-      monthly[key].missions++;
-      if (['DELIVERED', 'COMPLETED'].includes(m.status)) {
-        monthly[key].revenue += m.priceTTC / 100;
-        monthly[key].co2 += m.co2GlecWTW || 0;
-      }
-    }
-    return res.json({ success: true, data: Object.values(monthly) });
-  } catch (e) { return res.status(500).json({ error: 'Erreur analytics' }); }
-});
-
-// ── ADMIN: Verify transporteur ──
-app.post('/api/admin/transporteurs/:id/verify', auth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
-  try {
-    const profile = await prisma.transporteurProfile.findUnique({ where: { id: req.params.id } });
-    if (!profile) return res.status(404).json({ error: 'Transporteur non trouvé' });
-    const updated = await prisma.transporteurProfile.update({
-      where: { id: req.params.id },
-      data: { isVerified: true, verifiedAt: new Date(), verifiedBy: req.user.id },
-    });
-    await prisma.notification.create({
-      data: { userId: profile.userId, type: 'VERIFICATION_APPROVED', title: 'Profil vérifié !', message: 'Votre profil transporteur a été vérifié. Vous pouvez maintenant enchérir.' },
-    });
-    return res.json({ success: true, data: updated, message: 'Transporteur vérifié' });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-// ── ADMIN: Disputes ──
-app.get('/api/admin/disputes', auth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
-  try {
-    const disputes = await prisma.dispute.findMany({
-      orderBy: { createdAt: 'desc' }, take: 50,
-      include: { mission: { select: { reference: true, pickupCity: true, deliveryCity: true } },
-                 transporteur: { include: { user: { select: { firstName: true, lastName: true } } } } },
-    });
-    return res.json({ success: true, data: disputes, count: disputes.length });
-  } catch (e) { return res.status(500).json({ error: 'Erreur serveur' }); }
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// FRONTEND STATIC SERVING
-// ═══════════════════════════════════════════════════════════════════════════
-
-const publicPath = path.join(__dirname, 'public');
-app.use(express.static(publicPath));
-
-// SPA fallback: toute route non-API renvoie le frontend
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/') || req.path === '/health') {
-    return res.status(404).json({ error: `Route ${req.method} ${req.originalUrl} non trouvée`, hint: 'GET /health' });
-  }
-  // Essayer le fichier HTML correspondant
-  const htmlFile = path.join(publicPath, req.path, 'index.html');
-  const fs = require('fs');
-  if (fs.existsSync(htmlFile)) {
-    return res.sendFile(htmlFile);
-  }
-  // Fallback: index.html (SPA)
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 404 CATCH-ALL (API only)
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.use((req, res) => {

@@ -1,256 +1,163 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// FRETNOW — SEED v4.0
+// ═══════════════════════════════════════════════════════════════════════════
+
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...\n');
+  console.log('🌱 Seeding FRETNOW database v4...');
 
-  // Admin
-  const adminPassword = await bcrypt.hash('Admin123!', 12);
-  const adminCompany = await prisma.company.upsert({
-    where: { siret: '12345678901234' },
+  // ── ADMIN ──
+  const adminHash = await bcrypt.hash('admin123456', 12);
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@fretnow.fr' },
     update: {},
     create: {
-      name: 'Transport Token SAS',
-      siret: '12345678901234',
-      legalForm: 'SAS',
-      address: '1 Rue de la Plateforme',
-      city: 'Paris',
-      postalCode: '75001',
-      country: 'FR',
-      capitalSocial: 100000,
+      email: 'admin@fretnow.fr', passwordHash: adminHash,
+      firstName: 'Admin', lastName: 'FRETNOW',
+      role: 'ADMIN', status: 'ACTIVE', emailVerified: true,
+    },
+  });
+  console.log('  ✅ Admin:', admin.email);
+
+  // ── COMPANY ──
+  const company1 = await prisma.company.upsert({
+    where: { siret: '12345678900001' },
+    update: {},
+    create: {
+      name: 'TRANSTEK Express', siret: '12345678900001',
+      city: 'Créteil', postalCode: '94000', country: 'FR',
+      isVerified: true, verifiedAt: new Date(),
     },
   });
 
-  await prisma.user.upsert({
-    where: { email: 'admin@transport-token.com' },
+  const company2 = await prisma.company.upsert({
+    where: { siret: '98765432100001' },
     update: {},
     create: {
-      email: 'admin@transport-token.com',
-      passwordHash: adminPassword,
-      firstName: 'Admin',
-      lastName: 'System',
-      role: 'SUPER_ADMIN',
-      status: 'ACTIVE',
-      emailVerified: true,
-      kycVerified: true,
-      companyId: adminCompany.id,
-    },
-  });
-  console.log('✅ Admin: admin@transport-token.com / Admin123!');
-
-  // Client
-  const clientPassword = await bcrypt.hash('Client123!', 12);
-  const clientCompany = await prisma.company.upsert({
-    where: { siret: '98765432109876' },
-    update: {},
-    create: {
-      name: 'ACME Industries',
-      siret: '98765432109876',
-      legalForm: 'SAS',
-      address: '100 Avenue Industrie',
-      city: 'Lyon',
-      postalCode: '69001',
-      country: 'FR',
+      name: 'LogiNord SARL', siret: '98765432100001',
+      city: 'Lille', postalCode: '59000', country: 'FR',
+      isVerified: true, verifiedAt: new Date(),
     },
   });
 
-  const clientUser = await prisma.user.upsert({
-    where: { email: 'client@demo.com' },
+  const company3 = await prisma.company.upsert({
+    where: { siret: '55566677700001' },
     update: {},
     create: {
-      email: 'client@demo.com',
-      passwordHash: clientPassword,
-      firstName: 'Jean',
-      lastName: 'Dupont',
-      phone: '+33612345678',
-      role: 'CLIENT',
-      status: 'ACTIVE',
-      emailVerified: true,
-      companyId: clientCompany.id,
-    },
-  });
-  console.log('✅ Client: client@demo.com / Client123!');
-
-  // Transporteur
-  const transporteurPassword = await bcrypt.hash('Transport123!', 12);
-  const transporteurCompany = await prisma.company.upsert({
-    where: { siret: '11223344556677' },
-    update: {},
-    create: {
-      name: 'TRANSTEK EXPRESS',
-      siret: '11223344556677',
-      legalForm: 'SARL',
-      address: '50 Zone Industrielle',
-      city: 'Marseille',
-      postalCode: '13001',
-      country: 'FR',
-      capitalSocial: 50000,
+      name: 'GreenShip SAS', siret: '55566677700001',
+      city: 'Lyon', postalCode: '69001', country: 'FR',
+      isVerified: true, verifiedAt: new Date(),
     },
   });
 
-  const transporteurUser = await prisma.user.upsert({
-    where: { email: 'transporteur@demo.com' },
+  // ── CLIENTS ──
+  const clientHash = await bcrypt.hash('client123456', 12);
+  const client1 = await prisma.user.upsert({
+    where: { email: 'client@transtek.fr' },
     update: {},
     create: {
-      email: 'transporteur@demo.com',
-      passwordHash: transporteurPassword,
-      firstName: 'Pierre',
-      lastName: 'Martin',
-      phone: '+33698765432',
-      role: 'TRANSPORTEUR',
-      status: 'ACTIVE',
-      emailVerified: true,
-      kycVerified: true,
-      companyId: transporteurCompany.id,
+      email: 'client@transtek.fr', passwordHash: clientHash,
+      firstName: 'Touko', lastName: 'Manager',
+      role: 'CLIENT', status: 'ACTIVE', companyId: company1.id,
     },
   });
 
-  const transporteurProfile = await prisma.transporteurProfile.upsert({
-    where: { userId: transporteurUser.id },
+  const client2 = await prisma.user.upsert({
+    where: { email: 'achat@greenlogistic.fr' },
     update: {},
     create: {
-      userId: transporteurUser.id,
-      licenceNumber: 'LIC-2024-001234',
-      licenceExpiry: new Date('2027-12-31'),
-      isVerified: true,
-      verifiedAt: new Date(),
-      coverageCountries: JSON.stringify(['FR', 'BE', 'DE', 'ES', 'IT']),
-      coverageRadius: 2000,
-      hasADR: true,
-      hasFrigo: true,
-      hasHayon: true,
+      email: 'achat@greenlogistic.fr', passwordHash: clientHash,
+      firstName: 'Marie', lastName: 'Dupont',
+      role: 'CLIENT', status: 'ACTIVE',
     },
   });
-  console.log('✅ Transporteur: transporteur@demo.com / Transport123!');
+  console.log('  ✅ Clients créés');
 
-  // Véhicules
-  try {
-    await prisma.vehicle.create({
-      data: {
-        transporteurId: transporteurProfile.id,
-        type: 'FOURGON_20M3',
-        brand: 'Mercedes',
-        model: 'Sprinter',
-        year: 2023,
-        licensePlate: 'AB-123-CD',
-        capacityKg: 1500,
-        volumeM3: 20,
-        hasTailLift: true,
-        hasTracker: true,
-        euroNorm: 'Euro 6',
-        fuelType: 'diesel',
-        ckPerKm: 0.78,
-        ccPerHour: 28,
-        cjPerDay: 135,
-      },
-    });
-  } catch (e) { /* already exists */ }
+  // ── TRANSPORTEURS ──
+  const transHash = await bcrypt.hash('trans123456', 12);
 
-  try {
-    await prisma.vehicle.create({
-      data: {
-        transporteurId: transporteurProfile.id,
-        type: 'SEMI_TAUTLINER',
-        brand: 'Volvo',
-        model: 'FH16',
-        year: 2022,
-        licensePlate: 'EF-456-GH',
-        capacityKg: 25000,
-        volumeM3: 90,
-        hasTailLift: false,
-        hasTracker: true,
-        euroNorm: 'Euro 6',
-        fuelType: 'diesel',
-        ckPerKm: 1.35,
-        ccPerHour: 42,
-        cjPerDay: 295,
-      },
-    });
-  } catch (e) { /* already exists */ }
-  console.log('✅ 2 véhicules ajoutés');
+  const trans1 = await prisma.user.upsert({
+    where: { email: 'transporteur@loginord.fr' },
+    update: {},
+    create: {
+      email: 'transporteur@loginord.fr', passwordHash: transHash,
+      firstName: 'Jean', lastName: 'Routier',
+      role: 'TRANSPORTEUR', status: 'ACTIVE', companyId: company2.id,
+    },
+  });
 
-  // Mission de demo
-  try {
-    await prisma.mission.create({
-      data: {
-        reference: 'TT-2025-000001',
-        clientId: clientUser.id,
-        status: 'PENDING',
-        pickupAddress: '15 Rue de la Paix',
-        pickupCity: 'Paris',
-        pickupPostalCode: '75002',
-        pickupCountry: 'FR',
-        pickupLat: 48.8698,
-        pickupLon: 2.3311,
-        deliveryAddress: '100 Cours Lafayette',
-        deliveryCity: 'Lyon',
-        deliveryPostalCode: '69003',
-        deliveryCountry: 'FR',
-        deliveryLat: 45.7640,
-        deliveryLon: 4.8357,
-        goodsDescription: 'Pièces détachées automobiles',
-        weightKg: 800,
-        volumeM3: 5,
-        packagesCount: 12,
-        vehicleTypeRequired: 'FOURGON_20M3',
-        distanceKm: 465,
-        estimatedDurationHours: 6.5,
-        priceBase: 85000,
-        priceTolls: 7000,
-        priceCommission: 9200,
-        priceHT: 101200,
-        priceTVA: 20240,
-        priceTTC: 121440,
-        tvaRate: 20,
-        ttScore: 72,
-      },
-    });
-  } catch (e) { /* already exists */ }
-  console.log('✅ Mission de test créée');
+  const trans2 = await prisma.user.upsert({
+    where: { email: 'driver@greenship.fr' },
+    update: {},
+    create: {
+      email: 'driver@greenship.fr', passwordHash: transHash,
+      firstName: 'Lucas', lastName: 'Vert',
+      role: 'TRANSPORTEUR', status: 'ACTIVE', companyId: company3.id,
+    },
+  });
 
-  // v3.0: Missions en mode BIDDING
-  const biddingMissions = [
-    { ref: 'TT-2025-000002', pickup: 'Paris', delivery: 'Marseille', goods: 'Palettes de cosmétiques SEB', wKg: 2400, vehicle: 'PORTEUR_12T', urgent: true, dist: 775 },
-    { ref: 'TT-2025-000003', pickup: 'Lyon', delivery: 'Bordeaux', goods: 'Produits pharmaceutiques Sanofi', wKg: 5200, vehicle: 'SEMI_TAUTLINER', urgent: false, dist: 550, adr: true },
-    { ref: 'TT-2025-000004', pickup: 'Lille', delivery: 'Marseille', goods: 'Matériaux Lafarge', wKg: 18000, vehicle: 'SEMI_BENNE', urgent: false, dist: 1000 },
-    { ref: 'TT-2025-000005', pickup: 'Nantes', delivery: 'Strasbourg', goods: 'Colis Vinted marketplace', wKg: 800, vehicle: 'FOURGON_20M3', urgent: true, dist: 830 },
-    { ref: 'TT-2025-000006', pickup: 'Toulouse', delivery: 'Nice', goods: 'Huiles alimentaires Lesieur', wKg: 12000, vehicle: 'SEMI_CITERNE', urgent: false, dist: 550 },
+  // ── TRANSPORTEUR PROFILES ──
+  const profile1 = await prisma.transporteurProfile.upsert({
+    where: { userId: trans1.id },
+    update: { isVerified: true, verifiedAt: new Date(), averageRating: 4.5, ratingCount: 23, totalMissions: 45, completedMissions: 42, baseCity: 'Lille', baseLat: 50.6292, baseLon: 3.0573, hasADR: true, hasGPS: true },
+    create: { userId: trans1.id, isVerified: true, verifiedAt: new Date(), averageRating: 4.5, ratingCount: 23, totalMissions: 45, completedMissions: 42, baseCity: 'Lille', baseLat: 50.6292, baseLon: 3.0573, hasADR: true, hasGPS: true, coverageCountries: 'FR,BE,NL,DE' },
+  });
+
+  const profile2 = await prisma.transporteurProfile.upsert({
+    where: { userId: trans2.id },
+    update: { isVerified: true, verifiedAt: new Date(), averageRating: 4.8, ratingCount: 12, totalMissions: 18, completedMissions: 18, baseCity: 'Lyon', baseLat: 45.764, baseLon: 4.8357, hasGPS: true },
+    create: { userId: trans2.id, isVerified: true, verifiedAt: new Date(), averageRating: 4.8, ratingCount: 12, totalMissions: 18, completedMissions: 18, baseCity: 'Lyon', baseLat: 45.764, baseLon: 4.8357, hasGPS: true, coverageCountries: 'FR,IT,CH' },
+  });
+  console.log('  ✅ Transporteurs vérifiés');
+
+  // ── VEHICLES ──
+  const vehicles = [
+    { transporteurId: profile1.id, type: 'SEMI_TAUTLINER', brand: 'Renault', model: 'T520', year: 2022, licensePlate: 'AB-123-CD', capacityKg: 24000, volumeM3: 90, fuelType: 'diesel_b7', ckPerKm: 1.35, ccPerHour: 42, cjPerDay: 295 },
+    { transporteurId: profile1.id, type: 'FOURGON_20M3', brand: 'Mercedes', model: 'Sprinter', year: 2023, licensePlate: 'EF-456-GH', capacityKg: 1800, volumeM3: 20, fuelType: 'diesel_b7', ckPerKm: 0.78, ccPerHour: 28, cjPerDay: 135 },
+    { transporteurId: profile2.id, type: 'PORTEUR_ELEC', brand: 'Volvo', model: 'FL Electric', year: 2024, licensePlate: 'IJ-789-KL', capacityKg: 7000, volumeM3: 35, fuelType: 'electric', ckPerKm: 0.90, ccPerHour: 32, cjPerDay: 180 },
+    { transporteurId: profile2.id, type: 'VUL_ELECTRIQUE', brand: 'Fiat', model: 'e-Ducato', year: 2024, licensePlate: 'MN-012-OP', capacityKg: 1200, volumeM3: 13, fuelType: 'electric', ckPerKm: 0.55, ccPerHour: 26, cjPerDay: 125 },
   ];
 
-  for (const m of biddingMissions) {
-    try {
-      await prisma.mission.create({
-        data: {
-          reference: m.ref, clientId: clientUser.id, status: 'BIDDING',
-          pickupAddress: `Zone industrielle ${m.pickup}`, pickupCity: m.pickup,
-          pickupPostalCode: '00000', pickupCountry: 'FR', pickupLat: 48.85, pickupLon: 2.35,
-          deliveryAddress: `Entrepôt ${m.delivery}`, deliveryCity: m.delivery,
-          deliveryPostalCode: '00000', deliveryCountry: 'FR', deliveryLat: 43.29, deliveryLon: 5.36,
-          goodsDescription: m.goods, weightKg: m.wKg, vehicleTypeRequired: m.vehicle,
-          isUrgent: m.urgent || false, isADR: m.adr || false,
-          distanceKm: m.dist, estimatedDurationHours: m.dist / 70,
-          priceHT: m.dist * 120, priceTTC: m.dist * 144, priceCommission: m.dist * 12,
-          tvaRate: 20, ttScore: 65,
-          co2GlecWTW: Math.round(m.dist * m.wKg * 0.00006 * 10) / 10,
-          co2Rating: m.dist * m.wKg * 0.00006 < 50 ? 'A' : m.dist * m.wKg * 0.00006 < 150 ? 'B' : 'C',
-          co2Methodology: 'GLEC v3 / ISO 14083',
-          biddingDeadline: new Date(Date.now() + 48 * 3600000),
-        },
-      });
-    } catch (e) { /* exists */ }
+  for (const v of vehicles) {
+    await prisma.vehicle.upsert({ where: { licensePlate: v.licensePlate }, update: v, create: v });
   }
-  console.log('✅ 5 missions marketplace BIDDING créées');
+  console.log('  ✅ 4 véhicules créés');
 
-  console.log('\n🎉 Database seeded v3.0 successfully!');
+  // ── DEMO MISSIONS ──
+  const missions = [
+    { clientId: client1.id, reference: 'FN-2026-000001', status: 'BIDDING', pickupCity: 'Paris', pickupAddress: 'Rungis', pickupPostalCode: '94150', pickupCountry: 'FR', pickupLat: 48.7466, pickupLon: 2.3491, deliveryCity: 'Lyon', deliveryAddress: 'Gerland', deliveryPostalCode: '69007', deliveryCountry: 'FR', deliveryLat: 45.7256, deliveryLon: 4.8340, goodsDescription: '33 palettes produits alimentaires', weightKg: 18000, vehicleTypeRequired: 'SEMI_TAUTLINER', distanceKm: 462, estimatedDurationHours: 5.8, priceHT: 158535, priceTTC: 190242, priceTVA: 31707, tvaRate: 20, priceBase: 130000, priceCommission: 14412, co2Estimated: 374.6, co2GlecWTW: 374.6, co2Rating: 'D', co2Methodology: 'GLEC v3', ttScore: 30, biddingDeadline: new Date(Date.now() + 48 * 3600000), isUrgent: true },
+    { clientId: client1.id, reference: 'FN-2026-000002', status: 'DELIVERED', pickupCity: 'Marseille', pickupAddress: 'Port', pickupPostalCode: '13002', pickupCountry: 'FR', pickupLat: 43.2965, pickupLon: 5.3698, deliveryCity: 'Bordeaux', deliveryAddress: 'Begles', deliveryPostalCode: '33130', deliveryCountry: 'FR', deliveryLat: 44.8378, deliveryLon: -0.5792, goodsDescription: 'Mobilier bureau', weightKg: 8000, vehicleTypeRequired: 'PORTEUR_12T', distanceKm: 650, estimatedDurationHours: 8.2, priceHT: 125000, priceTTC: 150000, priceTVA: 25000, tvaRate: 20, priceBase: 105000, priceCommission: 11363, co2Estimated: 280, co2GlecWTW: 280, co2Rating: 'C', ttScore: 45, transporteurId: profile1.id, acceptedAt: new Date('2026-02-01'), completedAt: new Date('2026-02-03') },
+    { clientId: client2.id, reference: 'FN-2026-000003', status: 'IN_TRANSIT', pickupCity: 'Lyon', pickupAddress: 'Part-Dieu', pickupPostalCode: '69003', pickupCountry: 'FR', pickupLat: 45.764, pickupLon: 4.8357, deliveryCity: 'Milan', deliveryAddress: 'Rho Fiera', deliveryPostalCode: '20017', deliveryCountry: 'IT', deliveryLat: 45.4642, deliveryLon: 9.19, goodsDescription: 'Pièces auto', weightKg: 5000, vehicleTypeRequired: 'VUL_ELECTRIQUE', distanceKm: 640, estimatedDurationHours: 10.5, priceHT: 92000, priceTTC: 112240, priceTVA: 20240, tvaRate: 22, priceBase: 78000, priceCommission: 8363, co2Estimated: 0, co2GlecWTW: 8.5, co2Rating: 'A', ecoOption: 'electric', ttScore: 85, transporteurId: profile2.id, acceptedAt: new Date(), pickupDateActual: new Date() },
+  ];
+
+  for (const m of missions) {
+    await prisma.mission.upsert({ where: { reference: m.reference }, update: {}, create: m });
+  }
+  console.log('  ✅ 3 missions démo');
+
+  // ── NOTIFICATIONS ──
+  await prisma.notification.createMany({
+    data: [
+      { userId: client1.id, type: 'WELCOME', title: 'Bienvenue sur FRETNOW !', message: 'Créez votre première mission de transport et recevez des offres en temps réel.' },
+      { userId: trans1.id, type: 'WELCOME', title: 'Bienvenue transporteur !', message: 'Votre profil est vérifié. Consultez le marketplace pour enchérir.' },
+      { userId: trans1.id, type: 'NEW_BID', title: 'Nouvelle mission disponible', message: 'Paris → Lyon, 18T, URGENT. Enchérissez maintenant.' },
+    ],
+    skipDuplicates: true,
+  });
+  console.log('  ✅ Notifications démo');
+
+  console.log('\n🎉 Seed terminé !');
+  console.log('   Comptes de test:');
+  console.log('   Admin:        admin@fretnow.fr / admin123456');
+  console.log('   Client:       client@transtek.fr / client123456');
+  console.log('   Transporteur: transporteur@loginord.fr / trans123456');
+  console.log('   Transporteur: driver@greenship.fr / trans123456');
 }
 
 main()
-  .catch((e) => {
-    console.error('❌ Seed error:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .then(async () => { await prisma.$disconnect(); })
+  .catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1); });

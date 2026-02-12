@@ -1,7 +1,7 @@
 {
-  "name": "transport-token-api",
-  "version": "1.0.0",
-  "description": "Transport Token API - Plateforme B2B de transport",
+  "name": "fretnow-api",
+  "version": "4.0.0",
+  "description": "FRETNOW API - Marketplace de fret routier B2B",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

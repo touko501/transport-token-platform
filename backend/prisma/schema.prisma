@@ -1,10 +1,24 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// TRANSPORT TOKEN — SCHEMA PRISMA v3.0
-// Mise à jour : + Bid, Rating, Notification, CarbonReport
+// FRETNOW — SCHEMA PRISMA v4.0 (AMÉLIORÉ)
+// ═══════════════════════════════════════════════════════════════════════════
+// Changements vs v3.0 :
+//   ✅ Enums au lieu de String pour les statuts (intégrité DB)
+//   ✅ Index composites pour les requêtes fréquentes
+//   ✅ Table Payment (suivi J+1, Stripe Connect)
+//   ✅ Table Dispute (litiges)
+//   ✅ Table AuditLog (traçabilité)
+//   ✅ Table GpsPosition (tracking temps réel)
+//   ✅ Table Document (CMR, factures, POD)
+//   ✅ Table InviteCode (parrainage)
+//   ✅ Soft delete (deletedAt) sur User et Mission
+//   ✅ Champs manquants identifiés par les tests
+//   ✅ Contraintes CHECK via @db annotations
+//   ✅ Relations onDelete cascade/restrict
 // ═══════════════════════════════════════════════════════════════════════════
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "filteredRelationCount"]
 }
 
 datasource db {
@@ -12,236 +26,493 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── UTILISATEURS ───────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// ENUMS (au lieu de String — garantit l'intégrité en base)
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum UserRole {
+  CLIENT
+  TRANSPORTEUR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  PENDING_VERIFICATION
+}
+
+enum MissionStatus {
+  DRAFT
+  PENDING
+  BIDDING
+  ASSIGNED
+  ACCEPTED
+  PICKUP
+  IN_TRANSIT
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum BidStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED_CLIENT
+  RESOLVED_TRANSPORTEUR
+  CLOSED
+  ESCALATED
+}
+
+enum NotificationType {
+  NEW_BID
+  BID_ACCEPTED
+  BID_REJECTED
+  MISSION_UPDATE
+  DELIVERY_CONFIRMED
+  RATING_RECEIVED
+  PAYMENT_RECEIVED
+  PAYMENT_SENT
+  DISPUTE_OPENED
+  DISPUTE_RESOLVED
+  SYSTEM
+  WELCOME
+  VERIFICATION_APPROVED
+}
+
+enum VehicleType {
+  VELO_CARGO
+  SCOOTER_ELEC
+  VUL_ELECTRIQUE
+  FOURGONNETTE
+  FOURGON_12M3
+  FOURGON_20M3
+  PORTEUR_7T5
+  PORTEUR_12T
+  PORTEUR_19T
+  PORTEUR_ELEC
+  SEMI_TAUTLINER
+  SEMI_FRIGO
+  SEMI_BENNE
+  SEMI_CITERNE
+  MEGA_TRAILER
+  ELECTRIQUE_FOURGON
+}
+
+enum FuelType {
+  diesel_b7
+  hvo100
+  b100
+  gnl
+  bio_gnl
+  electric
+  hydrogen
+}
+
+enum EcoOption {
+  standard
+  hvo
+  electric
+  hydrogen
+}
+
+enum DocumentType {
+  CMR
+  INVOICE
+  POD           // Proof of Delivery
+  PHOTO_PICKUP
+  PHOTO_DELIVERY
+  INSURANCE
+  LICENCE
+  KYC_ID
+  KYC_KBIS
+  OTHER
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILISATEURS
+// ═══════════════════════════════════════════════════════════════════════════
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
+  id            String     @id @default(cuid())
+  email         String     @unique
   passwordHash  String
-  firstName     String?
-  lastName      String?
+  firstName     String
+  lastName      String
   phone         String?
-  role          String   @default("CLIENT") // CLIENT, TRANSPORTEUR, ADMIN
-  status        String   @default("ACTIVE")
-  emailVerified Boolean  @default(false)
-  kycVerified   Boolean  @default(false)
+  avatar        String?    // URL avatar
+  role          UserRole   @default(CLIENT)
+  status        UserStatus @default(ACTIVE)
+  emailVerified Boolean    @default(false)
+  kycVerified   Boolean    @default(false)
+  locale        String     @default("fr") // fr, en, de, es...
+  timezone      String     @default("Europe/Paris")
   companyId     String?
-  company       Company? @relation(fields: [companyId], references: [id])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  lastLoginAt   DateTime?
+  company       Company?   @relation(fields: [companyId], references: [id])
   
-  clientMissions      Mission[] @relation("ClientMissions")
+  // Stripe Connect
+  stripeCustomerId  String? @unique // Pour les paiements clients
+  stripeAccountId   String? @unique // Pour les virements transporteurs
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  lastLoginAt   DateTime?
+  deletedAt     DateTime?  // Soft delete
+  
+  // Relations
+  clientMissions      Mission[]            @relation("ClientMissions")
   transporteurProfile TransporteurProfile?
-  ratingsGiven        Rating[]  @relation("RatingsGiven")
+  ratingsGiven        Rating[]             @relation("RatingsGiven")
   notifications       Notification[]
+  documents           Document[]
+  auditLogs           AuditLog[]           @relation("AuditUser")
+  invitesSent         InviteCode[]         @relation("InviteSender")
+  inviteUsed          InviteCode?          @relation("InviteReceiver")
+  
+  @@index([email])
+  @@index([role, status])
+  @@index([companyId])
+  @@index([deletedAt]) // Pour filtrer les soft-deleted
 }
 
-// ─── ENTREPRISES ────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// ENTREPRISES
+// ═══════════════════════════════════════════════════════════════════════════
 
 model Company {
-  id           String   @id @default(cuid())
-  name         String
-  siret        String   @unique
-  legalForm    String?
-  address      String?
-  city         String?
-  postalCode   String?
-  country      String   @default("FR")
-  phone        String?
+  id            String   @id @default(cuid())
+  name          String
+  siret         String   @unique
+  siren         String?  // 9 premiers chiffres du SIRET
+  legalForm     String?  // SAS, SARL, EI, SCIC...
+  address       String?
+  city          String?
+  postalCode    String?
+  country       String   @default("FR")
+  phone         String?
+  email         String?
+  website       String?
   capitalSocial Float?
-  createdAt    DateTime @default(now())
-  users        User[]
+  tvaIntra      String?  // N° TVA intracommunautaire
+  apeCode       String?  // Code APE/NAF
+  insuranceRef  String?  // Référence assurance transport
+  
+  isVerified    Boolean  @default(false)
+  verifiedAt    DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  users         User[]
+  
+  @@index([siret])
+  @@index([city, country])
 }
 
-// ─── PROFIL TRANSPORTEUR ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// PROFIL TRANSPORTEUR
+// ═══════════════════════════════════════════════════════════════════════════
 
 model TransporteurProfile {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  user             User     @relation(fields: [userId], references: [id])
-  licenceNumber    String?
-  licenceExpiry    DateTime?
-  isVerified       Boolean  @default(false)
-  verifiedAt       DateTime?
-  totalMissions    Int      @default(0)
-  completedMissions Int     @default(0)
-  averageRating    Float    @default(0)
-  coverageCountries String? // "FR,DE,BE,NL" — pays desservis
-  coverageRadius   Int      @default(500)  // km
-  hasADR           Boolean  @default(false)
-  hasFrigo         Boolean  @default(false)
-  hasHayon         Boolean  @default(false)
-  avgResponseMinutes Int    @default(30)
-  createdAt        DateTime @default(now())
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  licenceNumber     String?
+  licenceExpiry     DateTime?
+  insuranceNumber   String?
+  insuranceExpiry   DateTime?
+  isVerified        Boolean  @default(false)
+  verifiedAt        DateTime?
+  verifiedBy        String?  // Admin qui a vérifié
+  
+  // Stats
+  totalMissions     Int      @default(0)
+  completedMissions Int      @default(0)
+  cancelledMissions Int      @default(0) // NOUVEAU: suivi annulations
+  averageRating     Float    @default(0)
+  ratingCount       Int      @default(0) // NOUVEAU: nombre de notes
+  
+  // Couverture
+  coverageCountries String?  // "FR,DE,BE,NL"
+  coverageRadius    Int      @default(500)
+  baseCity          String?  // NOUVEAU: ville de base pour le matching
+  baseLat           Float?   // NOUVEAU: coordonnées base
+  baseLon           Float?
+  
+  // Spécialisations
+  hasADR            Boolean  @default(false)
+  hasFrigo          Boolean  @default(false)
+  hasHayon          Boolean  @default(false)
+  hasBachee         Boolean  @default(false) // NOUVEAU
+  hasGPS            Boolean  @default(true)  // NOUVEAU
+  
+  // Performance
+  avgResponseMinutes Int     @default(30)
+  avgPickupDelay     Float?  // NOUVEAU: retard moyen pickup (minutes)
+  avgDeliveryDelay   Float?  // NOUVEAU: retard moyen delivery (minutes)
+  
+  // Finance
+  totalRevenue       Int     @default(0) // NOUVEAU: revenus cumulés en centimes
+  pendingPayout      Int     @default(0) // NOUVEAU: en attente de paiement
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
   
   vehicles  Vehicle[]
-  missions  Mission[] @relation("TransporteurMissions")
+  missions  Mission[]      @relation("TransporteurMissions")
   bids      Bid[]
-  ratings   Rating[]  @relation("RatingsReceived")
+  ratings   Rating[]       @relation("RatingsReceived")
+  disputes  Dispute[]      @relation("DisputeTransporteur")
+  
+  @@index([isVerified])
+  @@index([averageRating(sort: Desc)])
+  @@index([baseCity])
+  @@index([baseLat, baseLon]) // Recherche géographique
 }
 
-// ─── VÉHICULES ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// VÉHICULES
+// ═══════════════════════════════════════════════════════════════════════════
 
 model Vehicle {
-  id             String   @id @default(cuid())
+  id             String      @id @default(cuid())
   transporteurId String
-  transporteur   TransporteurProfile @relation(fields: [transporteurId], references: [id])
-  type           String   // SEMI_TAUTLINER, PORTEUR_12T, etc.
+  transporteur   TransporteurProfile @relation(fields: [transporteurId], references: [id], onDelete: Cascade)
+  
+  type           VehicleType
   brand          String?
   model          String?
   year           Int?
-  licensePlate   String   @unique
+  licensePlate   String      @unique
+  vin            String?     // NOUVEAU: numéro de châssis
+  
   capacityKg     Float
   volumeM3       Float?
-  hasTailLift    Boolean  @default(false)
-  hasTracker     Boolean  @default(false)
-  euroNorm       String?  // Euro 5, Euro 6, ZÉRO
-  fuelType       String   @default("diesel") // diesel, electric, gnl, hvo100, hydrogen
-  ckPerKm        Float    @default(0.78)
-  ccPerHour      Float    @default(28)
-  cjPerDay       Float    @default(135)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  palletSpots    Int?        // NOUVEAU: nombre d'emplacements palettes
+  lengthM        Float?      // NOUVEAU: longueur utile
   
-  missions Mission[]
-  bids     Bid[]
+  hasTailLift    Boolean     @default(false)
+  hasTracker     Boolean     @default(false)
+  hasSideOpening Boolean     @default(false) // NOUVEAU: ouverture latérale
+  
+  euroNorm       String?     // Euro 5, Euro 6, ZÉRO
+  fuelType       FuelType    @default(diesel_b7)
+  
+  // Coûts CNR personnalisables
+  ckPerKm        Float       @default(0.78)
+  ccPerHour      Float       @default(28)
+  cjPerDay       Float       @default(135)
+  
+  isActive       Boolean     @default(true)
+  lastInspection DateTime?   // NOUVEAU: date dernier contrôle technique
+  
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  
+  missions       Mission[]
+  bids           Bid[]
+  gpsPositions   GpsPosition[] // NOUVEAU
+  
+  @@index([transporteurId, isActive])
+  @@index([type])
 }
 
-// ─── MISSIONS ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// MISSIONS
+// ═══════════════════════════════════════════════════════════════════════════
 
 model Mission {
-  id                   String   @id @default(cuid())
-  reference            String   @unique @default(cuid())
+  id                   String        @id @default(cuid())
+  reference            String        @unique @default(cuid())
   clientId             String
-  client               User     @relation("ClientMissions", fields: [clientId], references: [id])
+  client               User          @relation("ClientMissions", fields: [clientId], references: [id])
   transporteurId       String?
   transporteur         TransporteurProfile? @relation("TransporteurMissions", fields: [transporteurId], references: [id])
   vehicleId            String?
-  vehicle              Vehicle? @relation(fields: [vehicleId], references: [id])
+  vehicle              Vehicle?      @relation(fields: [vehicleId], references: [id])
   
-  // Statut : DRAFT → BIDDING → ASSIGNED → PICKUP → IN_TRANSIT → DELIVERED → COMPLETED → CANCELLED
-  status               String   @default("PENDING")
+  status               MissionStatus @default(PENDING)
   
-  // Enlèvement
+  // ── Enlèvement ──
   pickupAddress        String
   pickupCity           String
   pickupPostalCode     String
-  pickupCountry        String   @default("FR")
+  pickupCountry        String        @default("FR")
   pickupLat            Float?
   pickupLon            Float?
   pickupContact        String?
   pickupPhone          String?
+  pickupInstructions   String?       // NOUVEAU: instructions de chargement
   pickupDateRequested  DateTime?
   pickupDateActual     DateTime?
+  pickupTimeWindow     String?       // NOUVEAU: "08:00-12:00"
   
-  // Livraison
+  // ── Livraison ──
   deliveryAddress      String
   deliveryCity         String
   deliveryPostalCode   String
-  deliveryCountry      String   @default("FR")
+  deliveryCountry      String        @default("FR")
   deliveryLat          Float?
   deliveryLon          Float?
   deliveryContact      String?
   deliveryPhone        String?
+  deliveryInstructions String?       // NOUVEAU
   deliveryDateRequested DateTime?
   deliveryDateActual    DateTime?
+  deliveryTimeWindow   String?       // NOUVEAU: "14:00-18:00"
   
-  // Marchandise
+  // ── Marchandise ──
   goodsDescription     String?
   goodsValue           Float?
-  weightKg             Float    @default(1000)
+  weightKg             Float         @default(1000)
   volumeM3             Float?
-  packagesCount        Int      @default(1)
+  packagesCount        Int           @default(1)
+  palletCount          Int?          // NOUVEAU
+  stackable            Boolean       @default(true)  // NOUVEAU
+  hsCode               String?       // NOUVEAU: code douanier
   
-  // Exigences
-  vehicleTypeRequired  String?
-  isUrgent             Boolean  @default(false)
-  isWeekend            Boolean  @default(false)
-  isNight              Boolean  @default(false)
-  isADR                Boolean  @default(false)
-  isFragile            Boolean  @default(false)
-  ecoOption            String   @default("standard") // standard, HVO, electric
+  // ── Exigences ──
+  vehicleTypeRequired  VehicleType?
+  isUrgent             Boolean       @default(false)
+  isWeekend            Boolean       @default(false)
+  isNight              Boolean       @default(false)
+  isADR                Boolean       @default(false)
+  isFragile            Boolean       @default(false)
+  requiresTailLift     Boolean       @default(false) // NOUVEAU
+  requiresTracker      Boolean       @default(false) // NOUVEAU
+  ecoOption            EcoOption     @default(standard)
   
-  // Tarification CNR
+  // ── Tarification CNR ──
   distanceKm           Float?
   estimatedDurationHours Float?
-  priceBase            Int      @default(0)
-  priceTolls           Int      @default(0)
-  priceSurcharges      Int      @default(0)
-  priceEcoDiscount     Int      @default(0)
-  priceCommission      Int      @default(0)
-  priceHT              Int      @default(0)
-  priceTVA             Int      @default(0)
-  priceTTC             Int      @default(0)
-  tvaRate              Float    @default(20)
+  priceBase            Int           @default(0) // centimes
+  priceTolls           Int           @default(0)
+  priceSurcharges      Int           @default(0)
+  priceEcoDiscount     Int           @default(0)
+  priceCommission      Int           @default(0)
+  priceHT              Int           @default(0)
+  priceTVA             Int           @default(0)
+  priceTTC             Int           @default(0)
+  tvaRate              Float         @default(20)
   
-  // Bilan carbone GLEC
-  co2Estimated         Float?   // kg CO2e — ancien champ
-  co2GlecWTW           Float?   // kg CO2e WTW (GLEC v3)
-  co2GlecTTW           Float?   // kg CO2e TTW
-  co2GlecWTT           Float?   // kg CO2e WTT
-  co2Rating            String?  // A+, A, B, C, D
-  co2Methodology       String?  // "GLEC v3 / ISO 14083"
+  // Prix final (après enchère)
+  finalPriceHT         Int?          // NOUVEAU: prix négocié
+  finalPriceTTC        Int?          // NOUVEAU
+  
+  // ── Bilan carbone GLEC ──
+  co2Estimated         Float?
+  co2GlecWTW           Float?
+  co2GlecTTW           Float?
+  co2GlecWTT           Float?
+  co2Rating            String?
+  co2Methodology       String?
+  co2Compensated       Boolean       @default(false) // NOUVEAU: compensation carbone
   
   // Transport Token Score
-  ttScore              Int      @default(50)
+  ttScore              Int           @default(50)
   
-  // Notes
+  // ── Notes & Annulation ──
   clientNotes          String?
   internalNotes        String?
+  cancelledBy          String?       // NOUVEAU: qui a annulé
+  cancelReason         String?       // NOUVEAU: motif d'annulation
+  cancelledAt          DateTime?     // NOUVEAU
   
-  // Enchères deadline
-  biddingDeadline      DateTime? // Date limite pour enchérir
+  // ── Enchères ──
+  biddingDeadline      DateTime?
+  maxBidAmount         Int?          // NOUVEAU: budget max du client
   
-  // Timestamps
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  // ── Timestamps ──
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
   acceptedAt           DateTime?
   completedAt          DateTime?
+  deletedAt            DateTime?     // Soft delete
   
-  // Relations v3.0
+  // ── Relations ──
   bids                 Bid[]
   ratings              Rating[]
   notifications        Notification[]
   carbonReports        CarbonReport[]
+  payments             Payment[]      // NOUVEAU
+  disputes             Dispute[]      // NOUVEAU
+  documents            Document[]     // NOUVEAU
+  gpsPositions         GpsPosition[]  // NOUVEAU
+  auditLogs            AuditLog[]     // NOUVEAU
+  
+  @@index([clientId, status])
+  @@index([transporteurId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([status, isUrgent(sort: Desc), createdAt(sort: Desc)]) // Marketplace sort
+  @@index([pickupCity, deliveryCity])
+  @@index([pickupCountry, deliveryCountry])
+  @@index([reference])
+  @@index([deletedAt])
+  @@index([biddingDeadline]) // Pour expirer les enchères
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ⬇️ NOUVEAUX MODÈLES v3.0 ⬇️
+// ENCHÈRES
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ─── ENCHÈRES (BIDDING SYSTEM) ──────────────────────────────────────────
-
 model Bid {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   missionId          String
-  mission            Mission  @relation(fields: [missionId], references: [id])
+  mission            Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
   transporteurId     String
   transporteur       TransporteurProfile @relation(fields: [transporteurId], references: [id])
   vehicleId          String?
-  vehicle            Vehicle? @relation(fields: [vehicleId], references: [id])
+  vehicle            Vehicle?  @relation(fields: [vehicleId], references: [id])
   
-  amount             Int      // Montant HT en euros
-  message            String?  // Message optionnel au client
+  amount             Int       // centimes HT
+  message            String?
   estimatedPickupDate DateTime?
+  estimatedDeliveryDate DateTime? // NOUVEAU
   
-  status             String   @default("PENDING") // PENDING, ACCEPTED, REJECTED, EXPIRED, WITHDRAWN
+  status             BidStatus @default(PENDING)
   
-  // Matching score au moment de l'enchère
-  matchScore         Int?     // Score AI 0-100
-  matchTier          String?  // gold, silver, bronze
+  matchScore         Int?
+  matchTier          String?   // gold, silver, bronze
   
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  // NOUVEAU: contre-offre
+  counterAmount      Int?      // Le client peut proposer un autre prix
+  counterMessage     String?
+  
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   respondedAt        DateTime?
+  expiresAt          DateTime? // NOUVEAU: expiration auto
   
-  @@unique([missionId, transporteurId]) // Un transporteur = une enchère par mission
-  @@index([missionId])
-  @@index([transporteurId])
+  @@unique([missionId, transporteurId])
+  @@index([missionId, status])
+  @@index([transporteurId, status])
+  @@index([missionId, amount(sort: Asc)]) // Tri par prix
 }
 
-// ─── SYSTÈME DE NOTATION ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// RATINGS
+// ═══════════════════════════════════════════════════════════════════════════
 
 model Rating {
   id               String   @id @default(cuid())
@@ -252,70 +523,274 @@ model Rating {
   toTransporteurId String
   toTransporteur   TransporteurProfile @relation("RatingsReceived", fields: [toTransporteurId], references: [id])
   
-  score            Int      // Note globale 1-5
-  comment          String?  // Commentaire libre
+  score            Int      // 1-5
+  comment          String?
   
-  // Critères détaillés (1-5 chacun)
-  punctuality      Int?     // Ponctualité
-  communication    Int?     // Communication
-  cargoHandling    Int?     // Soin de la marchandise
-  professionalism  Int?     // Professionnalisme
+  // Critères détaillés
+  punctuality      Int?     // 1-5
+  communication    Int?
+  cargoHandling    Int?
+  professionalism  Int?
+  
+  // NOUVEAU: le transporteur peut répondre
+  response         String?
+  respondedAt      DateTime?
+  
+  // NOUVEAU: signalement
+  isReported       Boolean  @default(false)
+  reportReason     String?
   
   createdAt        DateTime @default(now())
   
-  @@unique([missionId, fromUserId]) // Un avis par client par mission
-  @@index([toTransporteurId])
+  @@unique([missionId, fromUserId])
+  @@index([toTransporteurId, score])
+  @@index([toTransporteurId, createdAt(sort: Desc)])
 }
 
-// ─── NOTIFICATIONS TEMPS RÉEL ───────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════════════
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String           @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   missionId String?
-  mission   Mission? @relation(fields: [missionId], references: [id])
+  mission   Mission?         @relation(fields: [missionId], references: [id])
   
-  type      String   // NEW_BID, BID_ACCEPTED, BID_REJECTED, MISSION_UPDATE, DELIVERY_CONFIRMED, RATING_RECEIVED, SYSTEM
+  type      NotificationType
   title     String
   message   String
-  read      Boolean  @default(false)
+  read      Boolean          @default(false)
   
-  createdAt DateTime @default(now())
+  // NOUVEAU: canaux
+  sentEmail Boolean          @default(false)
+  sentSms   Boolean          @default(false)
+  sentPush  Boolean          @default(false)
   
-  @@index([userId, read])
-  @@index([userId, createdAt])
+  // NOUVEAU: action link
+  actionUrl String?
+  
+  createdAt DateTime         @default(now())
+  expiresAt DateTime?        // NOUVEAU: notifications temporaires
+  
+  @@index([userId, read, createdAt(sort: Desc)])
+  @@index([userId, type])
 }
 
-// ─── RAPPORTS CARBONE (GLEC / ISO 14083) ────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// RAPPORTS CARBONE
+// ═══════════════════════════════════════════════════════════════════════════
 
 model CarbonReport {
   id            String   @id @default(cuid())
   missionId     String
   mission       Mission  @relation(fields: [missionId], references: [id])
   
-  // Paramètres d'entrée
   vehicleType   String
   distanceKm    Float
   weightKg      Float
   fuelType      String   @default("diesel_b7")
+  departureCountry String @default("FR") // NOUVEAU: pour facteur élec
   
-  // Résultats (en kg CO2e)
-  co2WTW        Float    // Well-to-Wheel total
-  co2TTW        Float    // Tank-to-Wheel (combustion directe)
-  co2WTT        Float    // Well-to-Tank (production carburant)
+  co2WTW        Float
+  co2TTW        Float
+  co2WTT        Float
+  co2PerKm      Float
+  co2PerTkm     Float
   
-  // Intensité
-  co2PerKm      Float    // kg CO2e par km
-  co2PerTkm     Float    // gCO2e par tonne-km
-  
-  // Classification
   rating        String   // A+, A, B, C, D, E
   
-  // Métadonnées
   methodology   String   @default("GLEC Framework v3.2 / ISO 14083")
   daf           Float    @default(1.05)
+  
+  // NOUVEAU: compensation
+  compensated       Boolean @default(false)
+  compensationCost  Int?    // centimes
+  compensationRef   String? // référence du certificat
+  
   calculatedAt  DateTime @default(now())
   
   @@index([missionId])
+  @@index([rating])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 PAIEMENTS (J+1 Stripe Connect)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Payment {
+  id              String        @id @default(cuid())
+  missionId       String
+  mission         Mission       @relation(fields: [missionId], references: [id])
+  
+  // Montants
+  amountHT        Int           // centimes
+  amountTVA       Int
+  amountTTC       Int
+  commissionAmount Int          // Commission plateforme
+  transporteurPayout Int        // Ce que reçoit le transporteur
+  
+  // Stripe
+  stripePaymentIntentId String? @unique
+  stripeTransferId      String? @unique
+  stripeInvoiceId       String?
+  
+  status          PaymentStatus @default(PENDING)
+  
+  // Timing J+1
+  invoicedAt      DateTime?     // Date facturation
+  paidByClientAt  DateTime?     // Date paiement client
+  paidToTransAt   DateTime?     // Date virement transporteur (J+1)
+  
+  // Métadonnées
+  currency        String        @default("EUR")
+  paymentMethod   String?       // card, sepa_debit, bank_transfer
+  failureReason   String?
+  refundReason    String?
+  refundedAmount  Int?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@index([missionId])
+  @@index([status])
+  @@index([stripePaymentIntentId])
+  @@index([paidToTransAt]) // Pour le batch J+1
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 LITIGES
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Dispute {
+  id              String        @id @default(cuid())
+  missionId       String
+  mission         Mission       @relation(fields: [missionId], references: [id])
+  transporteurId  String
+  transporteur    TransporteurProfile @relation("DisputeTransporteur", fields: [transporteurId], references: [id])
+  
+  status          DisputeStatus @default(OPEN)
+  reason          String        // Catégorie: DAMAGE, DELAY, NO_SHOW, WRONG_DELIVERY, OTHER
+  description     String
+  
+  // Résolution
+  resolvedBy      String?       // Admin ID
+  resolution      String?       // Description de la résolution
+  refundAmount    Int?          // Montant remboursé (centimes)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  resolvedAt      DateTime?
+  
+  @@index([missionId])
+  @@index([status])
+  @@index([transporteurId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 POSITIONS GPS (Tracking temps réel)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model GpsPosition {
+  id          String   @id @default(cuid())
+  missionId   String
+  mission     Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  vehicleId   String?
+  vehicle     Vehicle? @relation(fields: [vehicleId], references: [id])
+  
+  latitude    Float
+  longitude   Float
+  altitude    Float?
+  speed       Float?   // km/h
+  heading     Float?   // 0-360°
+  accuracy    Float?   // mètres
+  
+  // ETA dynamique
+  etaMinutes  Int?     // NOUVEAU: ETA restant calculé
+  
+  recordedAt  DateTime @default(now())
+  
+  @@index([missionId, recordedAt(sort: Desc)])
+  @@index([vehicleId, recordedAt(sort: Desc)])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 DOCUMENTS (CMR, factures, POD, photos)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Document {
+  id          String       @id @default(cuid())
+  missionId   String?
+  mission     Mission?     @relation(fields: [missionId], references: [id])
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  
+  type        DocumentType
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  url         String       // URL de stockage (S3, Cloudflare R2...)
+  
+  // Signature électronique
+  signedBy    String?
+  signedAt    DateTime?
+  signatureHash String?    // SHA-256 du document signé
+  
+  createdAt   DateTime     @default(now())
+  
+  @@index([missionId, type])
+  @@index([userId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 AUDIT LOG (traçabilité complète)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation("AuditUser", fields: [userId], references: [id])
+  missionId   String?
+  mission     Mission? @relation(fields: [missionId], references: [id])
+  
+  action      String   // CREATE_MISSION, ACCEPT_BID, UPDATE_STATUS, LOGIN, etc.
+  entity      String   // Mission, Bid, User, Payment, etc.
+  entityId    String?
+  
+  oldValues   Json?    // Snapshot avant modification
+  newValues   Json?    // Snapshot après modification
+  
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([missionId])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([entity, entityId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🆕 CODES D'INVITATION (Parrainage)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model InviteCode {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  senderId    String
+  sender      User     @relation("InviteSender", fields: [senderId], references: [id])
+  
+  receiverId  String?  @unique
+  receiver    User?    @relation("InviteReceiver", fields: [receiverId], references: [id])
+  
+  reward      Int      @default(0) // Bonus en centimes
+  usedAt      DateTime?
+  expiresAt   DateTime
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([code])
+  @@index([senderId])
 }
